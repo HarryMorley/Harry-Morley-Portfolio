@@ -1,0 +1,365 @@
+---
+title: "Master Project Proper"
+output: html_document
+date: "2024-03-01"
+---
+
+
+Where betas are hyperparameters fit to the data
+
+```{r packages, include=TRUE, echo=TRUE, eval=TRUE, cache=FALSE}
+
+library("matrixStats")
+library(actuar)
+
+library(LaplacesDemon)
+#library(Rfast)
+library(mnormt)
+library(matrixStats)
+
+library(stats)
+library(statmod)
+
+library(xtable)
+library(knitr)
+
+if(!require(golazo)){
+    library(devtools)
+    install_github("pzwiernik/golazo", build_vignettes=FALSE)
+}
+library(golazo)
+
+library(BDgraph)
+library(ssgraph)
+
+#install.packages(lubridate)
+library(lubridate)
+#install.packages('rstan')
+library(rstan)
+```
+
+
+```{r}
+stocks <- read.csv('/Users/harrymorley/Desktop/Work/BSE Work/Master Project/Dropbox/Data/StockReturns.csv') #replace this with stock data #path
+
+train_year <- 2015
+
+test_year <- 2016
+
+stocks$Year <- year(stocks$Date)
+
+years <- c(train_year, test_year)
+
+preprocessing <- function(stocks, years) {
+
+stocks_clean_subset <- stocks[stocks$Year %in% years,] #subset whole dataset to find only training and testing years
+
+stocks_clean <- stocks_clean_subset[, !apply(stocks_clean_subset, 2, function(x) any(is.na(x)))] #remove NAs from these years
+
+return(stocks_clean)
+}
+
+stocks_final <- preprocessing(stocks, years)
+
+
+train_set <- function(stocks_final) {
+  
+stocks_train <- stocks_final[stocks_final$Year == train_year,] #divide further into specific year
+
+stocks_train <- stocks_train[, 3:ncol(stocks_train)] #remove date and index
+
+stocks_train$Year <- NULL
+
+stocks_train <- data.frame(sapply(stocks_train, function(x) as.numeric(as.character(x)))) #make numeric
+
+return(stocks_train)
+  
+}
+
+test_set <- function(stocks_final) {
+  
+stocks_test <- stocks_final[stocks_final$Year == test_year,] #divide further into specific year
+
+stocks_test <- stocks_test[, 3:ncol(stocks_test)] #remove date and index
+
+stocks_test$Year <- NULL
+
+stocks_test <- data.frame(sapply(stocks_test, function(x) as.numeric(as.character(x)))) #make numeric
+
+return(stocks_test)
+  
+}
+
+stocks_train <- train_set(stocks_final)/100
+
+stocks_test <- test_set(stocks_final)/100
+
+stocks_train_matrix <- as.matrix(stocks_train)
+
+stocks_test_matrix <- as.matrix(stocks_test)
+```
+
+
+
+Now we standardise the data: 
+
+```{r}
+train_scaled <- scale(stocks_train) 
+
+train_mean <- attr(train_scaled, "scaled:center")
+train_sd <- attr(train_scaled, "scaled:scale")
+
+test_scaled <- scale(stocks_test, center = train_mean, scale = train_sd)
+```
+
+```{r}
+adjacency_matrix <- read.csv('/Users/harrymorley/Desktop/Work/BSE Work/Master Project/Dropbox/Data/Rafa Networks/Sym_adj_mat_2015_USE.csv') #replace this with path to sector #matrix
+
+# Set row names from the first column and then remove the first column
+rownames(adjacency_matrix) <- adjacency_matrix[, 1]
+adjacency_matrix <- adjacency_matrix[, -1]  # Remove the first column which is now set as row names
+
+# Assuming stocks_train is already loaded and has correct column names
+# Identify columns present in both adjacency_matrix and stocks_train
+common_cols <- colnames(adjacency_matrix) %in% colnames(stocks_train)
+
+# Filter columns to those that are common
+adjacency_matrix <- adjacency_matrix[, common_cols]
+
+# Ensure that row names are aligned with the new column structure
+# Filter rows to ensure they match the new column names
+if (!all(rownames(adjacency_matrix) %in% colnames(adjacency_matrix))) {
+    adjacency_matrix <- adjacency_matrix[rownames(adjacency_matrix) %in% colnames(adjacency_matrix), ]
+}
+
+# Check if the adjacency matrix is square
+if (nrow(adjacency_matrix) == ncol(adjacency_matrix)) {
+    print("The adjacency matrix is square and correctly filtered.")
+} else {
+    print("There was an error in filtering the adjacency matrix.")
+}
+
+# Check the alignment of row and column names
+if (identical(rownames(adjacency_matrix), colnames(adjacency_matrix))) {
+    print("Row and column names are aligned.")
+} else {
+    print("Mismatch in row and column names alignment.")
+}
+
+adjacency_matrix_2 <- as.matrix(adjacency_matrix)
+```
+
+```{r}
+
+adjacency_matrix_1 <- adjacency_matrix
+
+adjacency_matrix <- A_sectors #replace this #with path to your matrix
+
+# Set row names from the first column and then remove the first column
+#rownames(adjacency_matrix) <- adjacency_matrix[, 1]
+#adjacency_matrix <- adjacency_matrix[, -1]  # Remove the first column which is now set as row names
+
+# Assuming stocks_train is already loaded and has correct column names
+# Identify columns present in both adjacency_matrix and stocks_train
+common_cols <- colnames(adjacency_matrix) %in% colnames(stocks_train)
+
+# Filter columns to those that are common
+adjacency_matrix <- adjacency_matrix[, common_cols]
+
+# Ensure that row names are aligned with the new column structure
+# Filter rows to ensure they match the new column names
+if (!all(rownames(adjacency_matrix) %in% colnames(adjacency_matrix))) {
+    adjacency_matrix <- adjacency_matrix[rownames(adjacency_matrix) %in% colnames(adjacency_matrix), ]
+}
+
+# Check if the adjacency matrix is square
+if (nrow(adjacency_matrix) == ncol(adjacency_matrix)) {
+    print("The adjacency matrix is square and correctly filtered.")
+} else {
+    print("There was an error in filtering the adjacency matrix.")
+}
+
+# Check the alignment of row and column names
+if (identical(rownames(adjacency_matrix), colnames(adjacency_matrix))) {
+    print("Row and column names are aligned.")
+} else {
+    print("Mismatch in row and column names alignment.")
+}
+
+adjacency_matrix_2 <- as.matrix(adjacency_matrix)
+
+```
+
+```{r}
+#defining priors:
+
+lambda_0 <- 0.1
+
+omega_jj <- seq(0, ncol(train_scaled), length.out = 1000)
+plot(omega_jj, dexp(omega_jj, rate = lambda_0), xlab = "omega_jj", ylab = "Density", type = "l", lwd = 3)
+
+#off-diagonals
+lambda_0_set <- 0.1
+
+#Bayesian_GLASSO_hyperprior_summaries_lambda0Fixed(p = ncol(train_scaled), a_1_0 = 15, b_1_0 = 1, lambda_0 = lambda_0_set, N_MC = 100, thresh = 0.01) 
+
+a_0 <- 4
+b_0 <- 2 * sqrt(2)## somehow max variance 
+
+lambda_1_seq <- seq(0, ncol(train_scaled), length.out = 1000)
+plot(lambda_1_seq, dgamma(lambda_1_seq, shape = a_0, rate = b_0), xlab = "lambda_1", ylab = "Density", type = "l", lwd = 3)
+
+a_0_set <- 4
+b_0_set <- 2 * sqrt(2)
+```
+
+
+
+```{r}
+#using full lambda + both networks
+
+#epsilon_0 <- 0.2 good performing parameters (all in 20%s)
+#epsilon_1 <- 0.01
+#epsilon_2 <- 0.5
+
+
+#These control the step size in each proposal. 
+epsilon_0 <- 0.1
+epsilon_1 <- 0.1
+epsilon_2 <- 0.2
+
+prior_params_p20 <- list("a_1_0" = a_0_set,
+                        "b_1_0" = b_0_set,
+                        "lambda_0" = lambda_0_set)
+
+N <- 10000# MCMC iterations
+
+p <- 100
+
+catrate <- 20 #how often to print iteration. Larger is more, use powers of ten
+
+set.seed(13)
+
+#initalisation
+Omega_init <- matrix(0, nrow = p, ncol = p) + diag(1, p)
+tau_init <- matrix(1, nrow = p, ncol = p)
+mu_beta0 <- 0
+mu_beta1 <- 0
+mu_beta2 <- 0
+
+beta_var_init <- sqrt(log(2))
+
+stocks_train_matrix <- as.matrix(train_scaled)
+
+n_obs <- nrow(stocks_train_matrix)
+
+S <- t(stocks_train_matrix[,1:p])%*%stocks_train_matrix[,1:p]
+
+A_1 <- 1
+
+random_matrix_1 <- matrix(runif(p * p), nrow = p, ncol = p)
+
+# Make the matrix symmetric
+symmetric_matrix_1 <- (random_matrix_1 + t(random_matrix_1)) / 2
+
+diag(symmetric_matrix_1) <- 0
+
+random_matrix_2 <- matrix(runif(p * p), nrow = p, ncol = p)
+
+# Make the matrix symmetric
+symmetric_matrix_2 <- (random_matrix_2 + t(random_matrix_2)) / 2
+
+diag(symmetric_matrix_2) <- 0
+
+
+
+#A_2 <- as.matrix(adjacency_matrix_1[1:p,1:p])
+
+#A_2[abs(A_2) < 0.1] <- 0
+
+#A_2[abs(A_2) != 0] <- 1
+
+A_3 <- as.matrix(adjacency_matrix_2[1:p,1:p])
+
+
+
+#all_beta <- all_beta_func(N = N, S = S, a_1_0 = prior_params_p20$a_1_0, b_1_0 = prior_params_p20$b_1_0, lambda_0 = prior_params_p20$lambda_0, n_obs = n_obs, Omega_init = Omega_init, tau_init = tau_init, beta_var_init = beta_var_init, mu_beta0 = mu_beta0, mu_beta1 = mu_beta1, mu_beta2 = mu_beta2, epsilon_0, epsilon_1, epsilon_2, A_1, A_2, catrate)
+
+
+```
+
+
+```{r}
+N = 500
+
+outputs <- hamil_func(N, S, lambda_0, n_obs, Omega_init, tau_init, epsilons = c(0.01, 0.01), A = list(A_3), catrate, mu_beta = c(1,1), var_beta = c(4.5, 4.5), step_size = 1e-4, n_steps = 100)
+```
+
+
+```{r}
+burnin <- 0
+
+beta0_full <- outputs$beta_chain[1, burnin:N]
+
+beta1_full <- outputs$beta_chain[2, burnin:N]
+
+#beta2_full <- gen_beta$beta_chain[3, burnin:N]
+
+#plot(lambda_1_full, type = 'l', col = 1)
+
+plot(beta0_full, type = 'l', col = 1)
+
+plot(beta1_full, type = 'l', col = 2)
+
+#plot(beta2_full, type = 'l', col = 3)
+
+#points(lambda_1_test, type = 'l', col = 2)
+
+#plot(density(lambda_1_full), type = 'l', col = 1)
+
+plot(density(beta0_full), type = 'l', col = 3)
+
+plot(density(beta1_full), type = 'l', col = 2)
+
+#plot(density(beta2_full), type = 'l', col = 4)
+
+#points(density(lambda_1_test), type = 'l', col = 2)
+
+cat('acc rate:', mean(outputs$accrate), '  ')
+
+#cat('beta_2 acc rate:', mean(gen_beta$accrate[3,]), '  ')
+
+cat('beta_0 value:', mean(beta0_full), '  ')
+
+cat('beta_1 value:', mean(beta1_full), '  ') 
+
+#cat('beta_2 value:', mean(beta2_full), '  ') 
+
+#acf(beta0_full)
+
+acf(beta0_full)
+
+acf(beta1_full)
+
+
+mcmc_object_0 <- mcmc(beta0_full)
+ess_values <- effectiveSize(mcmc_object_0)
+
+print(ess_values)
+
+mcmc_object_1 <- mcmc(beta1_full)
+ess_values <- effectiveSize(mcmc_object_1)
+
+print(ess_values)
+```
+
+
+
+```{r}
+Omega_mean_scaled <- apply(all_beta$Omega_chain[(200 + 1):N, , ], c(2, 3), mean)
+```
+
+
+
+
+
