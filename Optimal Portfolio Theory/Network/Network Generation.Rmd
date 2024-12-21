@@ -1,0 +1,184 @@
+---
+title: "Network Data Preparation"
+output: html_document
+date: "2024-03-31"
+---
+
+```{r}
+metadata <- read.csv('/Users/harrymorley/Desktop/Work/BSE Work/Master Project/Data/Archive_data/Company financial metadata.csv')
+
+metadata_train <- metadata[metadata$Symbol %in% colnames(stocks_train),]
+
+metadata_train <- metadata_train[, c("Symbol", "Sector")]
+
+not_in_metadata <- colnames(stocks_train)[!colnames(stocks_train) %in% metadata_train$Symbol]
+```
+
+```{r}
+mat1 <- matrix(1:4, nrow = 2, ncol = 2)
+mat2 <- matrix(5:8, nrow = 2, ncol = 2)
+mat3 <- matrix(9:12, nrow = 2, ncol = 2)
+matrices <- list(mat1, mat2, mat3)
+
+# Step 2: Create a vector of betas
+betas <- c(0.1, 0.2, 0.3)
+
+# Step 3: Multiply each matrix by its corresponding beta
+weighted_matrices <- Reduce(`+`, lapply(seq_along(matrices), function(i) betas[i] * matrices[[i]]))
+
+weighted_matrices
+```
+
+```{r}
+sectors_not_in_metadata <- c("Financials", 
+"Utilities", 
+"Industrials", 
+"Energy",
+"Materials",
+"Consumer Discretionary", 
+"Health Care", 
+"Health Care",
+"Consumer Discretionary",
+"Financials", 
+"Industrials", 
+"Consumer Staples", 
+"Real Estate", 
+"Real Estate",
+"Materials", 
+"Real Estate",
+"Health Care", 
+"Industrials", 
+"Real Estate", 
+"Energy", 
+"Consumer Discretionary", 
+"Health Care", 
+"Consumer Discretionary",
+"Materials",
+"Health Care", 
+"Financials",
+"Utilities", 
+"Financials", 
+"Industrials", 
+"Energy",
+"Information Technology",
+"Financials",
+"Real Estate", 
+"Industrials", 
+"Industrials",
+"Information Technology", 
+"Information Technology",
+"Industrials", 
+"Industrials",
+"Consumer Discretionary", 
+"Materials",
+"Communication Services", 
+"Financials", 
+"Communication Services", 
+"Health Care", 
+"Information Technology",
+"Industrials", 
+"Consumer Discretionary",
+"Industrials",
+"Information Technology", 
+"Communication Services", 
+"Consumer Discretionary", 
+"Information Technology", 
+"Industrials",
+"Health Care",
+"Industrials",
+"Materials",
+"Health Care", 
+"Communication Services",
+"Industrials",
+"Health Care",
+"Information Technology", 
+"Industrials",
+"Information Technology",
+"Financials", 
+"Information Technology", 
+"Health Care", 
+"Financials", 
+"Industrials",
+"Communication Services", 
+"Real Estate", 
+"Health Care",
+"Financials", 
+"Information Technology")
+
+new_data <- data.frame(Symbol = not_in_metadata, Sector = sectors_not_in_metadata)
+
+metadata_train <- rbind(metadata_train, new_data)
+```
+
+
+```{r}
+# Create an empty dataframe with the same column names as stocks_train
+sector_vectors <- data.frame(matrix(0, nrow = 11, ncol = ncol(stocks_train)))
+names(sector_vectors) <- colnames(stocks_train)
+
+# Define row names for sectors
+row.names(sector_vectors) <- c('Industrials', 'Health Care', 'Information Technology', 
+                               'Utilities', 'Financials', 'Materials', 
+                               'Real Estate', 'Consumer Staples', 'Consumer Discretionary', 
+                               'Energy', 'Telecommunication Services')
+
+# Loop through each column in stocks_train
+for (col_name in colnames(stocks_train)) {
+  # Assuming 'metadata' is a dataframe with 'Sector' and 'Ticker' columns
+  # Find the sector for the current ticker
+  sector <- metadata$Sector[metadata$Symbol == col_name]
+  
+  # Check if the sector was found
+  if (length(sector) > 0 && !is.na(sector)) {
+    # Set the corresponding cell in sector_vectors to 1
+    sector_vectors[sector, col_name] <- 1
+  }
+}
+
+# View the first few rows of sector_vectors
+head(sector_vectors)
+
+```
+
+```{r}
+sector_matrix <- as.matrix(sector_vectors)
+
+# Calculate the p x p matrix of dot products
+# The %*% operator in R performs matrix multiplication
+A <- t(sector_matrix) %*% sector_matrix
+```
+
+```{r}
+#computing BIC 
+
+BIC_function <- function(beta0, beta_q, lambda, stocks_train, A_sectors) {
+  n <- nrow(stocks_train) # Number of observations
+  p <- ncol(stocks_train) # Number of stocks
+  S <- cov(stocks_train)  # Sample covariance matrix
+  
+  # Example of calculating a single lambda value, needs adjustment for your model
+  lambda_matrix <- matrix(nrow = p, ncol = p)
+  for (i in 1:p) {
+    for (j in 1:p) {
+      if (i != j) {
+        lambda_matrix[i, j] <- exp(beta0 + sum(beta_q * A_sectors[i, j])) # Adjust this based on your actual model
+      }
+    }
+  }
+  
+  
+  
+  log_likelihood <- 0 # This needs to be calculated based on theta_hat
+  
+  # Count the number of edges in theta_hat
+  num_edges <- sum(theta_hat$wi != 0) - p # Adjust for diagonal not counting
+  
+  # Calculate BIC
+  BIC <- -2 * log_likelihood + num_edges * log(n)
+  
+  return(BIC)
+}
+```
+
+
+
